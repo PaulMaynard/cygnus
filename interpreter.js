@@ -1,3 +1,4 @@
+"use strict"
 class Scope {
   constructor(vars = new Map(), parents = [Scope.global]) {
     this.vars = vars

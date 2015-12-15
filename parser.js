@@ -13,11 +13,11 @@ Program
 
 Expression
   = Call
-  / Identifier
   / Block
   / List
+  / Ref
   / value:Value {
-    return {Type: 'Value', value}
+    return {Type: 'Literal', class: value.class, value: value.value}
   }
 
 Call
@@ -31,12 +31,12 @@ Value
 
 Number
   = num:$([+-]?[0-9]+('.'[0-9]+)?) {
-    return {Type: 'Number', value: num}
+    return {class: 'Number', value: Number(num, 10)}
   }
 
 Name
   = colon name:Identifier {
-    return {Type: 'Name', name}
+    return {class: 'Name', value: name}
   }
 
 Block
@@ -45,24 +45,29 @@ Block
   }
 
 List
-  = colon _ lparen _ first: Expression? rest:(space e:Expression {return e})* _ rparen {
+  = lbracket _ first: Expression? rest:(space e:Expression {return e})* _ rbracket {
     return {
       Type: 'Call',
       function: {Type: 'Ref', name: 'list'},
       args: [[first].filter(x => !!x).concat(rest)]
+    }
+  }
 
-     }
+Ref
+  = name:Identifier {
+    return {Type: 'Ref', name}
   }
 
 Identifier
-  = name:$(!space [^:\(\)\{\}0-9] (!space [^:\(\)\{\}])*) {
-	return {Type: 'Ref', name}
-  }
+  = $(!space [^:\(\)\{\}\[\]0-9] (!space [^:\(\)\{\}\[\]])*)
 
-lparen = '('
-rparen = ')'
-lbrace = '{'
-rbrace = '}'
-colon  = ':'
-space = [ \t\n\r]+
+lparen   = '('
+rparen   = ')'
+lbrace   = '{'
+rbrace   = '}'
+lbracket = '['
+rbracket = ']'
+colon    = ':'
+space    = [ \t\n\r]+
 _ "whitespace" = space?
+
