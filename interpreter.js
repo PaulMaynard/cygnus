@@ -1,8 +1,7 @@
-"use strict"
 class Scope {
-  constructor(vars = new Map(), parents = [Scope.global]) {
-    this.vars = vars
-    this.parents = parents
+  constructor(vars, parents) {
+    this.vars = vars || new Map()
+    this.parents = parents || [Scope.global]
   }
   get(name) {
     if(this.vars.has(name)) {
@@ -13,9 +12,9 @@ class Scope {
           return p.get(name)
         }
       }
-      return undefined
+      return nil
     } else {
-      return undefined
+      return nil
     }
   }
   set(name, val) {
@@ -59,17 +58,17 @@ class Scope {
 }
 
 class Value {
-  constructor(val) {
+  constructor(val, type) {
     this.value = val
+    this.type = type
   }
 }
-let nil = new Value(null)
-let undef = new Value(undefined)
+let nil = new Value(null, 'Nil')
 function Name(name) {
   if(Name.symbols.has(name)) {
     return Name.symbols.get(name)
   } else {
-    let val = new Value(name)
+    let val = new Value(name, 'Name')
     Name.symbols.set(name, val)
     return val
   }
@@ -77,10 +76,10 @@ function Name(name) {
 Name.symbols = new Map()
 class Block extends Value {
   constructor(exprs, lexScope) {
-    super(exprs)
+    super(exprs, 'Block')
     this.run = (runScope = new Scope()) => {
       let s = new Scope(new Map(), [runScope, lexScope])
-      let r = undef
+      let r = nil
       for(let e of this.value) {
         r = e.exec(s)
       }
@@ -90,53 +89,59 @@ class Block extends Value {
 }
 class JSFunc extends Value {
   constructor(func) {
-    super(func)
+    super(func, 'Function')
   }
-  call(args) {
+  call(args, scope) {
     return this.value(...args)
   }
 }
-class Func extends JSFunc {
-  constructor(args, body) {
+class ScopeFunc extends JSFunc {
+  constructor(func) {
     super(func)
   }
-  call(args) {
-    return this.value(...args)
+  call(args, scope) {
+    return this.value(args, scope)
   }
 }
 
 class Expression {
-  constructor(exec) {
-    this.exec = exec
-  }
+
 }
-class ValExpr extends Expression {
+class Literal extends Expression {
   constructor(val) {
-    super(() => this.val)
+    super()
     this.value = val
   }
+  exec() {
+    return this.value
+  }
 }
-class VarRef extends Expression {
+class Ref extends Expression {
   constructor(name) {
-    super(scope => scope.get(this.name))
+    super()
     this.name = name
+  }
+  exec(scope) {
+    return scope.get(this.name)
   }
 }
 class CallExpr extends Expression {
   constructor(func, args) {
-    super(scope => {
-      console.log(args)
-      console.log()
-      return func.exec(scope).call([args[0].value, args[1].value])
-    })
+    super()
     this.func = func
     this.args = args
+  }
+  exec(scope) {
+    return this.func.exec(scope).call(this.args.map(a => a.exec(scope)), scope)
   }
 }
 class BlockExpr extends Expression {
   constructor(exprs) {
-    super(scope => new Block(this.exprs, scope))
+    super()
     this.exprs = exprs
+  }
+  exec(scope) {
+    return new Block(this.exprs, scope)
   }
 }
 
@@ -144,57 +149,107 @@ function build(node) {
   return build.types[node.Type](node)
 }
 build.types = {
-  Value({value}) {
-    return new ValExpr(build(value))
+  ref({name}) {
+    return new Ref(Name(name))
   },
-  Ref({name}) {
-    return new VarRef(Name(name))
+  literal({Class, value}) {
+    return new Literal(build.classes[Class](value))
   },
-  Number({value}) {
-    return new Value(value)
-  },
-  Block({exprs}) {
+  block({exprs}) {
     return new BlockExpr(exprs.map(build))
   },
-  Call({func, args}) {
+  call({func, args}) {
     return new CallExpr(build(func), args.map(build))
   }
 }
+build.classes = {
+  number(num) {
+    return new Value(num, 'Number')
+  },
+  name(n) {
+    return Name(n)
+  }
+}
 Scope.global = new Scope(new Map([
-  [new Name('nil'), nil],
-  [new Name('undef'), undef],
-  //[new Name('run'), new JSFunc((block, scope) => {
-  //  return block.run(scope)
-  //})],
-  //[new Name('list')],
-  //[new Name('scope')]
-  //[new Name('set')],
-  //[new Name('def')],
+  [Name('nil'), nil],
+  [new Name('run'), new JSFunc((block, scope) => {
+    return block.run(scope || new Scope())
+  })],
+  [new Name('list'), new JSFunc((...elems) => new Value(elems, 'List'))],
+  [new Name('scope'), new ScopeFunc(([vars], scope) => {
+    if(vars) {
+      console.log(vars)
+      //return new Value(new Scope(vars.value))
+    }
+    return new Value(scope, "scope")
+  })],
+  [new Name('def'), new ScopeFunc(([name, val, scope], defscope) =>
+    ((scope && scope.value) || defscope).def(name, val))],
+  [new Name('get'), new ScopeFunc(([name, scope], defscope) =>
+    ((scope && scope.value) || defscope).get(name, val))],
+  [new Name('set'), new ScopeFunc(([name, val, scope], defscope) =>
+    ((scope && scope.value) || defscope).set(name, val))],
   //[new Name('func')],
+]), [])
+let stdlibjs = new Scope(new Map([
+  [Name('+'), new JSFunc((a, b) => new Value(a.value + b.value, 'Scope'))],
+  [Name('-'), new JSFunc((a, b) => new Value(a.value - b.value, 'Scope'))],
 ]))
-let s = new Scope(new Map([
-  [new Name('+'), new JSFunc((a, b) => new Value(a.value + b.value))]
-]))
-console.log(build({
-  "Type": "Call",
-    "func": {
-      "Type": "Ref",
-      "name": "+"
-    },
-    "args": [
+let scope = new Scope(new Map([
+  [Name('foo'), new Value(123, 'number')]
+]), [stdlibjs, Scope.global])
+console.log(build(
+{
+   "Type": "call",
+   "func": {
+      "Type": "ref",
+      "name": "run"
+   },
+   "args": [
       {
-        "Type": "Value",
-        "value": {
-         "Type": "Number",
-          "value": "2"
-        }
-      },
-      {
-        "Type": "Value",
-        "value": {
-          "Type": "Number",
-          "value": "2"
-        }
+         "Type": "block",
+         "exprs": [
+            {
+               "Type": "call",
+               "func": {
+                  "Type": "ref",
+                  "name": "scope"
+               },
+               "args": [
+                  {
+                     "Type": "call",
+                     "func": {
+                        "Type": "ref",
+                        "name": "list"
+                     },
+                     "args": [
+                        {
+                           "Type": "call",
+                           "func": {
+                              "Type": "ref",
+                              "name": "list"
+                           },
+                           "args": [
+                              {
+                                 "Type": "literal",
+                                 "Class": "name",
+                                 "value": "x"
+                              },
+                              {
+                                 "Type": "literal",
+                                 "Class": "number",
+                                 "value": 1
+                              }
+                           ]
+                        }
+                     ]
+                  }
+               ]
+            }
+         ]
       }
    ]
-}).exec(s))
+}
+).exec(scope))
+
+console.log('\n\n')
