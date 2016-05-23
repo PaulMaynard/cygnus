@@ -1,2 +1,2 @@
 # cygnus
-A super-minimal lisp-like lambda language
+A super-minimal scope-y language
